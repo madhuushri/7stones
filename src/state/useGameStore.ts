@@ -63,6 +63,8 @@ interface GameStore {
   showNotification: (msg: string) => void;
 }
 
+let syncAccumulator = 0;
+
 export const useGameStore = create<GameStore>((set, get) => ({
   phase: 'menu',
   mode: 'match',
@@ -114,7 +116,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const initialPlayers = createPlayers(team, customization, settings.runnerLives);
     const initialStones = createSevenStones();
 
-    // In Pitthu, round starts with runner at throwing line holding the ball
     const initialBall: BallState = {
       position: [0, 1.2, 8.8],
       velocity: [0, 0, 0],
@@ -193,6 +194,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   setCameraAngles: (yaw, pitch) => {
+    // Continuous aim calculation matching exact camera perspective
     set({
       cameraAngles: { yaw, pitch },
       aimDirection: [-Math.sin(yaw), -Math.sin(pitch), -Math.cos(yaw)],
@@ -232,8 +234,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     human.position = [nextX, human.position[1], nextZ];
     human.rotation = facingAngle;
     human.animation = isJumping ? 'jump' : isSprinting ? 'run' : 'walk';
-
-    set({ players: [...players] });
   },
 
   startChargingThrow: () => {
@@ -243,7 +243,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const human = players.find((p) => p.isHuman);
     if (!human || human.isEliminated) return;
 
-    // Can only throw if holding the ball
     if (ball.holderId === human.id) {
       set({ isChargingThrow: true, throwPower: 0.1 });
     }
@@ -253,13 +252,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const { isChargingThrow, throwPower } = get();
     if (!isChargingThrow) return;
 
-    // Charge up power from 0.1 to 1.0
     const nextPower = Math.min(1.0, throwPower + delta * 1.5);
     set({ throwPower: nextPower });
   },
 
   releaseThrow: () => {
-    const { isChargingThrow, throwPower, ball, players, aimDirection, phase } = get();
+    const { isChargingThrow, throwPower, ball, players, aimDirection } = get();
     if (!isChargingThrow) return;
 
     const human = players.find((p) => p.isHuman);
@@ -268,14 +266,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    // Play throw animation
     human.animation = 'throw';
     setTimeout(() => {
       if (human.animation === 'throw') human.animation = 'idle';
     }, 400);
 
-    // Ball velocity based on aim direction & power
-    const speed = 14 + throwPower * 18; // 14 to 32 m/s
+    const speed = 15 + throwPower * 18; // 15 to 33 m/s
     const vx = aimDirection[0] * speed;
     const vy = (aimDirection[1] + 0.18) * speed;
     const vz = aimDirection[2] * speed;
@@ -295,7 +291,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       throwPower: 0,
       ball: updatedBall,
       players: [...players],
-      // If was aiming initial throw, ball is now in flight
     });
   },
 
@@ -322,14 +317,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     // 2. If human is a Runner:
     if (human.team === 'runners') {
-      // Case A: Carrying a stone and near the center base -> Place stone on stack
       if (human.carryingStoneIndex !== null) {
         const distToBase = getDist2D(human.position, [0, 0, 0]);
         if (distToBase <= 2.8) {
           const stoneIdx = human.carryingStoneIndex;
           const stone = stones.find((s) => s.id === stoneIdx);
           if (stone) {
-            // Find current stacked height
             const stackedCount = stones.filter((s) => s.isStacked).length;
             const targetY = 0.08 + stackedCount * 0.12 + 0.06;
 
@@ -348,7 +341,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
             get().showNotification(`Stone ${newStackedCount}/7 Rebuilt!`);
 
             if (newStackedCount === 7) {
-              // ALL 7 STONES STACKED! LAGORI VICTORY!
               soundManager.playLagoriVictory();
               confetti({
                 particleCount: 150,
@@ -371,7 +363,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
       }
 
-      // Case B: Not carrying a stone -> Pick up nearest scattered stone
       if (human.carryingStoneIndex === null) {
         let closestStone: StoneData | null = null;
         let minDist = 2.0;
@@ -399,16 +390,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
   },
 
-  // The comprehensive tick / simulation loop
   stepSimulation: (delta) => {
     const { phase, players, stones, ball, settings, roundTimeLeft, mode } = get();
     if (phase === 'paused' || phase === 'menu' || phase === 'customizing') return;
 
-    // 1. Advance round timer if active
+    let hasEventStateChange = false;
+
+    // 1. Advance round timer
     if (phase === 'active' && mode === 'match') {
       const nextTimer = Math.max(0, roundTimeLeft - delta);
       if (nextTimer <= 0) {
-        // Round timer expired -> Seekers victory!
         soundManager.playDefeat();
         set((state) => ({
           phase: 'time_up',
@@ -421,12 +412,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }));
         return;
       }
-      set({ roundTimeLeft: nextTimer });
     }
 
     // 2. Ball physical updates when free
     if (ball.isFree) {
-      // Gravity & velocity
       const g = -9.81;
       const nextVx = ball.velocity[0] * 0.992;
       const nextVy = ball.velocity[1] + g * delta;
@@ -465,17 +454,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       ball.position = [nextX, nextY, nextZ];
 
-      // A. Check Collision with the Stone Stack (Knocking them down)
+      // A. Collision with the Stone Stack
       const distToCenter = Math.sqrt(nextX * nextX + nextZ * nextZ);
       const isAnyStacked = stones.some((s) => s.isStacked);
 
       if (isAnyStacked && distToCenter < 1.4 && nextY < 1.3 && nextY > 0.1) {
-        // TOODLE / SCATTER STONES!
         soundManager.playStoneCrash();
         stones.forEach((stone, i) => {
           if (stone.isStacked) {
             stone.isStacked = false;
-            // Radial scatter impulse
             const angle = (i / 7) * Math.PI * 2 + (Math.random() - 0.5);
             const impulse = 3.5 + Math.random() * 5.0;
             stone.velocity = [
@@ -491,24 +478,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
           }
         });
 
-        // Switch to active round phase
         if (get().phase === 'aiming_throw') {
+          hasEventStateChange = true;
           set({ phase: 'active' });
           get().showNotification('STONES TOPPLED! Seekers chase the ball, Runners rebuild the stack!');
         }
 
-        // Deflect ball slightly
         ball.velocity[0] *= -0.4;
         ball.velocity[2] *= -0.4;
         ball.velocity[1] = 3.0;
       }
 
-      // B. Check Hit Detection against Runners (Seeker throwing ball at runners)
+      // B. Hit Detection against Runners
       const ballSpeed = Math.sqrt(
         ball.velocity[0] ** 2 + ball.velocity[1] ** 2 + ball.velocity[2] ** 2
       );
 
-      // Only registers as a tagging hit if ball was thrown with enough speed
       if (ballSpeed > 3.0 && phase === 'active') {
         for (const runner of players) {
           if (runner.team === 'runners' && !runner.isEliminated) {
@@ -518,18 +503,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
               runner.position[2],
             ]);
 
-            // Safe zones immunity
             const inSafeZone = settings.safeZonesEnabled && isInsideSafeZone(runner.position);
 
             if (dist < 1.15 && !inSafeZone) {
-              // TAGGED OUT / HIT!
               soundManager.playPlayerHit();
               runner.animation = 'hit';
               runner.lives -= 1;
+              hasEventStateChange = true;
 
               get().showNotification(`${runner.name} was HIT! (${runner.lives} lives remaining)`);
 
-              // If carrying stone, drops it
               if (runner.carryingStoneIndex !== null) {
                 const carriedStone = stones.find((s) => s.id === runner.carryingStoneIndex);
                 if (carriedStone) {
@@ -541,24 +524,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 runner.carryingStoneIndex = null;
               }
 
-              // Elimination check
               if (runner.lives <= 0) {
                 runner.isEliminated = true;
                 get().showNotification(`${runner.name} is ELIMINATED!`);
               }
 
-              // Deflect ball after hit
               ball.velocity[0] = -ball.velocity[0] * 0.3;
               ball.velocity[1] = 2.0;
               ball.velocity[2] = -ball.velocity[2] * 0.3;
 
-              // Check if ALL runners are eliminated
               const remainingRunners = players.filter(
                 (p) => p.team === 'runners' && !p.isEliminated
               );
 
               if (remainingRunners.length === 0) {
-                // Seekers win!
                 soundManager.playDefeat();
                 set((state) => ({
                   phase: 'eliminated',
@@ -568,6 +547,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
                   },
                   notification: 'All runners eliminated! Seekers win the round!',
                 }));
+                return;
               }
               break;
             }
@@ -575,7 +555,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
       }
     } else if (ball.holderId) {
-      // Ball is attached to holder's hand
       const holder = players.find((p) => p.id === ball.holderId);
       if (holder) {
         ball.position = [
@@ -586,16 +565,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
     }
 
-    // 3. Update scattered stones physics
+    // 3. Update scattered stones
     stones.forEach((stone) => {
       if (!stone.isStacked && !stone.isHeld) {
-        // Gravity
         stone.velocity[1] -= 9.81 * delta;
         stone.position[0] += stone.velocity[0] * delta;
         stone.position[1] += stone.velocity[1] * delta;
         stone.position[2] += stone.velocity[2] * delta;
 
-        // Ground collision
         if (stone.position[1] <= stone.height / 2 + 0.02) {
           stone.position[1] = stone.height / 2 + 0.02;
           if (Math.abs(stone.velocity[1]) > 0.5) {
@@ -603,7 +580,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
           } else {
             stone.velocity[1] = 0;
           }
-          // Ground friction
           stone.velocity[0] *= 0.88;
           stone.velocity[2] *= 0.88;
           stone.angularVelocity[0] *= 0.85;
@@ -611,12 +587,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
           stone.angularVelocity[2] *= 0.85;
         }
 
-        // Rotate
         stone.rotation[0] += stone.angularVelocity[0] * delta;
         stone.rotation[1] += stone.angularVelocity[1] * delta;
         stone.rotation[2] += stone.angularVelocity[2] * delta;
 
-        // Boundaries
         stone.position[0] = Math.max(-17.2, Math.min(17.2, stone.position[0]));
         stone.position[2] = Math.max(-17.2, Math.min(17.2, stone.position[2]));
       }
@@ -628,7 +602,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     players.forEach((ai) => {
       if (ai.isHuman || ai.isEliminated) return;
 
-      // Handle hit recovery
       if (ai.animation === 'hit') {
         setTimeout(() => {
           if (ai.animation === 'hit') ai.animation = 'idle';
@@ -638,16 +611,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // --- RUNNER AI ---
       if (ai.team === 'runners') {
         if (phase === 'aiming_throw') {
-          // If this runner is starting the throw (when player is Seeker)
           if (ball.holderId === ai.id) {
             ai.throwCooldown = (ai.throwCooldown || 0) + delta;
             if (ai.throwCooldown > 2.0) {
-              // AI aims and throws at center stone stack!
               const targetX = 0 + (Math.random() - 0.5) * 0.4;
               const targetZ = 0 + (Math.random() - 0.5) * 0.4;
               const dx = targetX - ai.position[0];
               const dz = targetZ - ai.position[2];
-              const dist = Math.sqrt(dx * dx + dz * dz);
+              const dist = Math.sqrt(dx * dx + dz * dz) || 1;
               const dir = [dx / dist, 0.14, dz / dist];
 
               soundManager.playThrowWhoosh();
@@ -664,7 +635,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
         if (phase !== 'active') return;
 
-        // Check if an armed seeker is nearby (Evasion behavior)
         const seekerWithBall = players.find(
           (p) => p.team === 'seekers' && ball.holderId === p.id
         );
@@ -673,7 +643,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
           : 999;
 
         if (distToThreat < 6.5) {
-          // FLEE: Run away from seeker / run towards nearest safe zone
           const fleeDx = ai.position[0] - seekerWithBall!.position[0];
           const fleeDz = ai.position[2] - seekerWithBall!.position[2];
           const fleeLen = Math.sqrt(fleeDx * fleeDx + fleeDz * fleeDz) || 1;
@@ -683,10 +652,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
           ai.rotation = Math.atan2(fleeDx, fleeDz);
           ai.animation = 'run';
         } else if (ai.carryingStoneIndex !== null) {
-          // DELIVER STONE: Move back to center base [0, 0, 0]
           const distToBase = getDist2D(ai.position, [0, 0, 0]);
           if (distToBase <= 2.2) {
-            // Deposit stone onto stack!
             const stoneIdx = ai.carryingStoneIndex;
             const stone = stones.find((s) => s.id === stoneIdx);
             if (stone) {
@@ -699,6 +666,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
               stone.velocity = [0, 0, 0];
               ai.carryingStoneIndex = null;
               soundManager.playStonePlace(stackedCount);
+              hasEventStateChange = true;
 
               const newCount = stackedCount + 1;
               get().showNotification(`Stone ${newCount}/7 Rebuilt by ${ai.name}!`);
@@ -711,20 +679,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
                   score: { ...state.score, runnersScore: state.score.runnersScore + 1 },
                   notification: 'LAGORI! Runners rebuilt all 7 stones and won the round!',
                 }));
+                return;
               }
             }
           } else {
-            // Pathfind to center
             const dirX = -ai.position[0];
             const dirZ = -ai.position[2];
-            const len = Math.sqrt(dirX * dirX + dirZ * dirZ);
+            const len = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
             ai.position[0] += (dirX / len) * 5.8 * speedMult * delta;
             ai.position[2] += (dirZ / len) * 5.8 * speedMult * delta;
             ai.rotation = Math.atan2(dirX, dirZ);
             ai.animation = 'run';
           }
         } else {
-          // FIND STONE: Seek closest unstacked stone
           let bestStone: StoneData | null = null;
           let bestDist = 999;
           stones.forEach((stone) => {
@@ -740,15 +707,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
           if (bestStone) {
             const bStone = bestStone as StoneData;
             if (bestDist < 1.6) {
-              // Pick it up!
               bStone.isHeld = true;
               bStone.carrierId = ai.id;
               ai.carryingStoneIndex = bStone.id;
+              hasEventStateChange = true;
               soundManager.playStonePickup();
             } else {
               const dirX = bStone.position[0] - ai.position[0];
               const dirZ = bStone.position[2] - ai.position[2];
-              const len = Math.sqrt(dirX * dirX + dirZ * dirZ);
+              const len = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
               ai.position[0] += (dirX / len) * 5.5 * speedMult * delta;
               ai.position[2] += (dirZ / len) * 5.5 * speedMult * delta;
               ai.rotation = Math.atan2(dirX, dirZ);
@@ -761,13 +728,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // --- SEEKER AI ---
       if (ai.team === 'seekers' && phase === 'active') {
         if (ball.isFree) {
-          // CHASE BALL
           const distToBall = getDist2D(ai.position, ball.position);
           if (distToBall < 1.6) {
-            // Pick up ball!
             ball.holderId = ai.id;
             ball.isFree = false;
             ball.velocity = [0, 0, 0];
+            hasEventStateChange = true;
             soundManager.playStonePickup();
           } else {
             const dirX = ball.position[0] - ai.position[0];
@@ -779,14 +745,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
             ai.animation = 'run';
           }
         } else if (ball.holderId === ai.id) {
-          // HOLDING BALL: Find closest active runner to target
           let targetRunner: PlayerState | null = null;
           let minRunnerDist = 999;
 
           players.forEach((p) => {
             if (p.team === 'runners' && !p.isEliminated) {
               const d = getDist2D(ai.position, p.position);
-              // Prioritize runners carrying stones
               const weight = p.carryingStoneIndex !== null ? 0.6 : 1.0;
               if (d * weight < minRunnerDist) {
                 minRunnerDist = d * weight;
@@ -800,15 +764,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
             const dist = getDist2D(ai.position, tRunner.position);
 
             if (dist <= 8.5) {
-              // AIM AND THROW!
               ai.throwCooldown = (ai.throwCooldown || 0) + delta;
               if (ai.throwCooldown > (settings.difficulty === 'hard' ? 0.8 : 1.4)) {
-                // Throw ball at runner with lead trajectory
                 const dx = tRunner.position[0] - ai.position[0];
                 const dz = tRunner.position[2] - ai.position[2];
                 const len = Math.sqrt(dx * dx + dz * dz) || 1;
 
-                // Accuracy dispersion based on difficulty
                 const spread = settings.difficulty === 'easy' ? 0.25 : settings.difficulty === 'normal' ? 0.12 : 0.04;
                 const throwDir = [
                   dx / len + (Math.random() - 0.5) * spread,
@@ -824,9 +785,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
                 ball.velocity = [throwDir[0] * throwSpeed, 4.2, throwDir[2] * throwSpeed];
                 ball.position = [ai.position[0], 1.3, ai.position[2]];
                 ai.throwCooldown = 0;
+                hasEventStateChange = true;
               }
             } else {
-              // Close the distance to runner
               const dirX = tRunner.position[0] - ai.position[0];
               const dirZ = tRunner.position[2] - ai.position[2];
               const len = Math.sqrt(dirX * dirX + dirZ * dirZ) || 1;
@@ -839,15 +800,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
         }
       }
 
-      // Clamp AI to arena bounds
       ai.position[0] = Math.max(-17.2, Math.min(17.2, ai.position[0]));
       ai.position[2] = Math.max(-17.2, Math.min(17.2, ai.position[2]));
     });
 
-    set({
-      players: [...players],
-      stones: [...stones],
-      ball: { ...ball },
-    });
+    // Throttled UI State Synchronization (12 FPS update for HUD radar & timer)
+    // Three.js meshes update at 60+ FPS while avoiding 60 React DOM re-renders per second!
+    syncAccumulator += delta;
+    if (syncAccumulator >= 0.08 || hasEventStateChange) {
+      syncAccumulator = 0;
+      set({
+        players: [...players],
+        stones: [...stones],
+        ball: { ...ball },
+        roundTimeLeft: phase === 'active' && mode === 'match' ? Math.max(0, roundTimeLeft - delta) : roundTimeLeft,
+      });
+    }
   },
 }));

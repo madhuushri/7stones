@@ -62,36 +62,36 @@ export const Playground: React.FC = () => {
 
       {/* Chalk Court Boundary Lines */}
       {/* Outer Boundary Box */}
-      <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh position={[0, 0.04, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[36, 36]} />
-        <meshBasicMaterial color="#FFFFFF" wireframe wireframeLinewidth={3} />
+        <meshBasicMaterial color="#FFFFFF" wireframe wireframeLinewidth={3} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} />
       </mesh>
 
       {/* Center Stone Circle Pedestal */}
-      <group position={[0, 0.01, 0]}>
+      <group position={[0, 0.03, 0]}>
         {/* Ring outline */}
         <mesh rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[2.8, 3.05, 48]} />
-          <meshBasicMaterial color="#FFFFFF" side={THREE.DoubleSide} />
+          <meshBasicMaterial color="#FFFFFF" side={THREE.DoubleSide} polygonOffset polygonOffsetFactor={-2} polygonOffsetUnits={-2} />
         </mesh>
         {/* Pedestal Pad */}
-        <mesh position={[0, 0.04, 0]}>
-          <cylinderGeometry args={[1.5, 1.7, 0.08, 32]} />
+        <mesh position={[0, 0.05, 0]}>
+          <cylinderGeometry args={[1.5, 1.7, 0.1, 32]} />
           <meshStandardMaterial color="#CBD5E1" roughness={0.6} />
         </mesh>
         {/* Center Target Bullseye */}
-        <mesh position={[0, 0.085, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh position={[0, 0.11, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[0.3, 0.6, 24]} />
-          <meshBasicMaterial color="#EF4444" side={THREE.DoubleSide} />
+          <meshBasicMaterial color="#EF4444" side={THREE.DoubleSide} polygonOffset polygonOffsetFactor={-3} polygonOffsetUnits={-3} />
         </mesh>
       </group>
 
       {/* Throwing Crease Lines (Runners throw from behind this line) */}
-      <group position={[0, 0.02, 9]}>
+      <group position={[0, 0.04, 9]}>
         {/* Crease line */}
         <mesh rotation={[-Math.PI / 2, 0, 0]}>
-          <planeGeometry args={[16, 0.25]} />
-          <meshBasicMaterial color="#FBBF24" />
+          <planeGeometry args={[16, 0.3]} />
+          <meshBasicMaterial color="#FBBF24" polygonOffset polygonOffsetFactor={-2} polygonOffsetUnits={-2} />
         </mesh>
         {/* Text / Marker Sign post */}
         <mesh position={[9, 0.75, 0]}>
@@ -105,23 +105,23 @@ export const Playground: React.FC = () => {
       </group>
 
       {/* Opposite Throwing Line */}
-      <group position={[0, 0.02, -9]}>
+      <group position={[0, 0.04, -9]}>
         <mesh rotation={[-Math.PI / 2, 0, 0]}>
-          <planeGeometry args={[16, 0.25]} />
-          <meshBasicMaterial color="#FBBF24" />
+          <planeGeometry args={[16, 0.3]} />
+          <meshBasicMaterial color="#FBBF24" polygonOffset polygonOffsetFactor={-2} polygonOffsetUnits={-2} />
         </mesh>
       </group>
 
       {/* Safe Zones (Marked Circles in Two Corners) */}
       {[[-14, 14], [14, -14]].map(([x, z], idx) => (
-        <group key={idx} position={[x, 0.02, z]}>
+        <group key={idx} position={[x, 0.035, z]}>
           <mesh rotation={[-Math.PI / 2, 0, 0]}>
             <ringGeometry args={[2.5, 2.7, 32]} />
-            <meshBasicMaterial color="#10B981" side={THREE.DoubleSide} />
+            <meshBasicMaterial color="#10B981" side={THREE.DoubleSide} polygonOffset polygonOffsetFactor={-2} polygonOffsetUnits={-2} />
           </mesh>
           <mesh rotation={[-Math.PI / 2, 0, 0]}>
             <circleGeometry args={[2.5, 32]} />
-            <meshBasicMaterial color="#A7F3D0" transparent opacity={0.35} side={THREE.DoubleSide} />
+            <meshBasicMaterial color="#A7F3D0" transparent opacity={0.35} side={THREE.DoubleSide} depthWrite={false} polygonOffset polygonOffsetFactor={-1} polygonOffsetUnits={-1} />
           </mesh>
         </group>
       ))}

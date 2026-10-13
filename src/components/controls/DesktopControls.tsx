@@ -40,6 +40,18 @@ export const DesktopControls: React.FC = () => {
     };
 
     const onMouseDown = (e: MouseEvent) => {
+      // Do not charge throw if clicking on HTML UI buttons or modals
+      const target = e.target as HTMLElement;
+      if (
+        target &&
+        (target.tagName === 'BUTTON' ||
+          target.closest('button') ||
+          target.tagName === 'INPUT' ||
+          target.closest('input'))
+      ) {
+        return;
+      }
+
       // Primary left click charges throw
       if (e.button === 0) {
         startChargingThrow();
