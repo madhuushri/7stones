@@ -198,8 +198,8 @@ export const Playground: React.FC = () => {
             <meshStandardMaterial color={h.wallColor} roughness={0.8} />
           </mesh>
           {/* Terracotta Roof */}
-          <mesh castShadow position={[0, h.size[1] + 1.8, 0]}>
-            <coneGeometry args={[Math.max(h.size[0], h.size[2]) * 0.72, 3.6, 4]} rotation={[0, Math.PI / 4, 0]} />
+          <mesh castShadow position={[0, h.size[1] + 1.8, 0]} rotation={[0, Math.PI / 4, 0]}>
+            <coneGeometry args={[Math.max(h.size[0], h.size[2]) * 0.72, 3.6, 4]} />
             <meshStandardMaterial color={h.roofColor} roughness={0.6} />
           </mesh>
           {/* Arched Door */}
